@@ -2,7 +2,7 @@ import json
 import os
 import csv
 import shutil
-from datetime import datetime
+from datetime import datetime, date
 from tkinter import filedialog, messagebox
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table
@@ -34,6 +34,8 @@ class DataManager:
                         cactus["notes"] = ""
                     if "next_repotting" not in cactus:
                         cactus["next_repotting"] = None
+                    if "fertilizers" not in cactus:
+                        cactus["fertilizers"] = []
             except json.JSONDecodeError:
                 self.initialize_default_data()
         else:
@@ -80,15 +82,16 @@ class DataManager:
         with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
             writer = csv.writer(csvfile)
             writer.writerow(["Имя кактуса", "Частота полива (дней)", "Последний полив", "Рост (см)", "Фото", "Заметки",
-                             "Следующая пересадка"])
+                             "Следующая пересадка", "Подкормки"])
 
             for cactus_name, cactus_data in self.data["cactuses"].items():
                 last_watering = cactus_data["watering"][-1]["date"] if cactus_data["watering"] else "Нет данных"
                 growth = "; ".join([f"{g['date']} - {g['height']} см" for g in cactus_data["growth"]]) or "Нет данных"
                 photos = "; ".join([p["date"] + " - " + p["path"] for p in cactus_data["photos"]]) or "Нет данных"
                 next_repotting = cactus_data["next_repotting"] or "Не установлено"
+                fertilizers = "; ".join([f"{f['date']} - {f['type']} ({f['dosage']})" for f in cactus_data["fertilizers"]]) or "Нет данных"
                 writer.writerow([cactus_name, cactus_data["watering_frequency"], last_watering, growth, photos,
-                                 cactus_data["notes"], next_repotting])
+                                 cactus_data["notes"], next_repotting, fertilizers])
 
     def export_to_pdf(self, file_path):
         """Export data to PDF"""
@@ -118,6 +121,9 @@ class DataManager:
 
             photos = "; ".join([f"{p['date']} - {p['path']}" for p in cactus_data["photos"]]) or "Нет данных"
             elements.append(Paragraph(f"Фото: {photos}", styles["BodyText"]))
+
+            fertilizers = "; ".join([f"{f['date']} - {f['type']} ({f['dosage']})" for f in cactus_data["fertilizers"]]) or "Нет данных"
+            elements.append(Paragraph(f"Подкормки: {fertilizers}", styles["BodyText"]))
 
             elements.append(Paragraph(f"Заметки: {cactus_data['notes'] or 'Нет заметок'}", styles["BodyText"]))
             next_repotting = cactus_data["next_repotting"] or "Не установлено"
@@ -160,3 +166,41 @@ class DataManager:
             except Exception as e:
                 messagebox.showerror("Ошибка", f"Не удалось восстановить данные: {str(e)}")
         return False
+
+    def get_seasonal_watering_frequency(self, cactus_name, species_db):
+        """Adjust watering frequency based on current season"""
+        cactus_data = self.data["cactuses"].get(cactus_name, {})
+        species = cactus_data.get("species", "Не указан")
+        species_data = species_db.get_species_data(species)
+        base_frequency = cactus_data.get("watering_frequency", species_data.get("watering_frequency", 14))
+
+        # Determine current season based on month
+        month = date.today().month
+        if month in [12, 1, 2]:  # Winter
+            return int(base_frequency * 1.5)  # Increase interval (less frequent)
+        elif month in [6, 7, 8]:  # Summer
+            return int(base_frequency * 0.7)  # Decrease interval (more frequent)
+        else:  # Spring and Autumn
+            return base_frequency
+
+    def bulk_add_watering(self, cactus_names, comment=""):
+        """Add watering record for multiple cactuses"""
+        for name in cactus_names:
+            watering = {
+                "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "comment": comment
+            }
+            self.data["cactuses"][name]["watering"].append(watering)
+        self.save_data()
+
+    def bulk_add_fertilizer(self, cactus_names, fertilizer_type, dosage, comment=""):
+        """Add fertilizer record for multiple cactuses"""
+        for name in cactus_names:
+            fertilizer = {
+                "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "type": fertilizer_type,
+                "dosage": dosage,
+                "comment": comment
+            }
+            self.data["cactuses"][name]["fertilizers"].append(fertilizer)
+        self.save_data()

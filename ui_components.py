@@ -1,11 +1,13 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from PIL import Image, ImageTk
 from achievements import AchievementsManager
 from visualization import VisualizationManager
 from species_database import SpeciesDatabase
+from health_diagnosis import HealthDiagnosis
 from utils import sort_cactuses
+
 
 class UIManager:
     def __init__(self, app):
@@ -15,6 +17,7 @@ class UIManager:
         self.visualization_manager = app.visualization_manager
         self.achievements_manager = AchievementsManager(app)
         self.species_db = SpeciesDatabase()
+        self.health_diagnosis = HealthDiagnosis()
 
     def create_main_window(self):
         """Create the main window"""
@@ -44,10 +47,14 @@ class UIManager:
         self.sort_dropdown.bind("<<ComboboxSelected>>", lambda e: self.update_cactus_dropdown())
 
         ttk.Button(self.cactus_frame, text="Подсказки по уходу", command=self.show_care_tips).pack(side="left", padx=5)
-        ttk.Button(self.cactus_frame, text="Экспорт данных", command=lambda: self.data_manager.export_data(self.root)).pack(side="left", padx=5)
-        ttk.Button(self.cactus_frame, text="Достижения", command=self.achievements_manager.show_achievements).pack(side="left", padx=5)
-        ttk.Button(self.cactus_frame, text="Создать резервную копию", command=self.data_manager.backup_data).pack(side="left", padx=5)
+        ttk.Button(self.cactus_frame, text="Экспорт данных",
+                   command=lambda: self.data_manager.export_data(self.root)).pack(side="left", padx=5)
+        ttk.Button(self.cactus_frame, text="Достижения", command=self.achievements_manager.show_achievements).pack(
+            side="left", padx=5)
+        ttk.Button(self.cactus_frame, text="Создать резервную копию", command=self.data_manager.backup_data).pack(
+            side="left", padx=5)
         ttk.Button(self.cactus_frame, text="Восстановить данные", command=self.restore_data).pack(side="left", padx=5)
+        ttk.Button(self.cactus_frame, text="Массовая обработка", command=self.bulk_processing).pack(side="left", padx=5)
 
         self.update_cactus_dropdown()
 
@@ -112,6 +119,17 @@ class UIManager:
         species_text = f"Вид: {species}\nОбщее название: {species_info.get('common_name', 'Неизвестно')}"
         ttk.Label(info_frame, text=species_text).pack(pady=5)
 
+        # Seasonal care recommendations
+        current_month = date.today().month
+        season = "winter" if current_month in [12, 1, 2] else "spring" if current_month in [3, 4, 5] else \
+            "summer" if current_month in [6, 7, 8] else "autumn"
+        seasonal_care = species_info.get("seasonal_care", {}).get(season, "Нет рекомендаций")
+        ttk.Label(info_frame, text=f"Сезонные рекомендации ({season}): {seasonal_care}").pack(pady=5)
+
+        # Fertilizer recommendation
+        fertilizer_rec = species_info.get("fertilizer_recommendation", "Нет рекомендаций")
+        ttk.Label(info_frame, text=f"Рекомендации по удобрениям: {fertilizer_rec}").pack(pady=5)
+
         health_frame = ttk.Frame(info_frame)
         health_frame.pack(pady=5)
         ttk.Label(health_frame, text="Здоровье:").pack(side="left")
@@ -122,14 +140,20 @@ class UIManager:
         ttk.Button(info_frame, text="Добавить полив", command=lambda: self.add_watering(cactus_name)).pack(pady=5)
         ttk.Button(info_frame, text="Записать рост", command=lambda: self.add_growth(cactus_name)).pack(pady=5)
         ttk.Button(info_frame, text="Добавить фото", command=lambda: self.add_photo(cactus_name)).pack(pady=5)
-        ttk.Button(info_frame, text="Показать графики", command=lambda: self.visualization_manager.show_graphs(cactus_name)).pack(pady=5)
+        ttk.Button(info_frame, text="Добавить подкормку", command=lambda: self.add_fertilizer(cactus_name)).pack(pady=5)
+        ttk.Button(info_frame, text="Диагностика здоровья", command=lambda: self.diagnose_health(cactus_name)).pack(
+            pady=5)
+        ttk.Button(info_frame, text="Показать графики",
+                   command=lambda: self.visualization_manager.show_graphs(cactus_name)).pack(pady=5)
         ttk.Button(info_frame, text="Фотоальбом", command=lambda: self.show_photo_album(cactus_name)).pack(pady=5)
         ttk.Button(info_frame, text="Редактировать заметки", command=lambda: self.edit_notes(cactus_name)).pack(pady=5)
-        ttk.Button(info_frame, text="Запланировать пересадку", command=lambda: self.plan_repotting(cactus_name)).pack(pady=5)
+        ttk.Button(info_frame, text="Запланировать пересадку", command=lambda: self.plan_repotting(cactus_name)).pack(
+            pady=5)
 
         ttk.Label(info_frame, text="Частота полива (дней):").pack()
         self.freq_entry = ttk.Entry(info_frame)
-        self.freq_entry.insert(0, str(cactus_data["watering_frequency"]))
+        seasonal_freq = self.data_manager.get_seasonal_watering_frequency(cactus_name, self.species_db)
+        self.freq_entry.insert(0, str(seasonal_freq))
         self.freq_entry.pack()
         ttk.Button(info_frame, text="Сохранить частоту", command=lambda: self.save_frequency(cactus_name)).pack(pady=5)
 
@@ -200,6 +224,7 @@ class UIManager:
                     "watering": [],
                     "growth": [],
                     "photos": [],
+                    "fertilizers": [],
                     "watering_frequency": freq,
                     "notes": "",
                     "next_repotting": None,
@@ -322,7 +347,7 @@ class UIManager:
                 self.data_manager.data["achievements"]["growth_master"]["growths"][cactus_name] = len(
                     self.data_manager.data["cactuses"][cactus_name]["growth"])
                 if self.data_manager.data["achievements"]["growth_master"]["growths"][cactus_name] >= 5 and not \
-                   self.data_manager.data["achievements"]["growth_master"]["completed"]:
+                        self.data_manager.data["achievements"]["growth_master"]["completed"]:
                     self.data_manager.data["achievements"]["growth_master"]["completed"] = True
                 self.data_manager.save_data()
                 self.visualization_manager.animate_cactus(cactus_name, self.cactus_canvas)
@@ -349,6 +374,76 @@ class UIManager:
             self.show_cactus_profile(None)
             messagebox.showinfo("Успех", "Фото добавлено!")
 
+    def add_fertilizer(self, cactus_name):
+        """Add fertilizer record"""
+        window = tk.Toplevel(self.root)
+        window.title("Добавить подкормку")
+        window.geometry("300x300")
+
+        ttk.Label(window, text="Тип удобрения:").pack(pady=5)
+        type_entry = ttk.Entry(window)
+        type_entry.pack(pady=5)
+
+        ttk.Label(window, text="Дозировка (например, 5 мл/л):").pack(pady=5)
+        dosage_entry = ttk.Entry(window)
+        dosage_entry.pack(pady=5)
+
+        ttk.Label(window, text="Комментарий:").pack(pady=5)
+        comment_entry = ttk.Entry(window, width=30)
+        comment_entry.pack(pady=5)
+
+        def save_fertilizer():
+            fertilizer_type = type_entry.get().strip()
+            dosage = dosage_entry.get().strip()
+            comment = comment_entry.get()
+            if not fertilizer_type or not dosage:
+                messagebox.showerror("Ошибка", "Укажите тип удобрения и дозировку")
+                return
+            fertilizer = {
+                "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "type": fertilizer_type,
+                "dosage": dosage,
+                "comment": comment
+            }
+            self.data_manager.data["cactuses"][cactus_name]["fertilizers"].append(fertilizer)
+            self.data_manager.save_data()
+            self.update_history(cactus_name)
+            self.show_cactus_profile(None)
+            window.destroy()
+
+        ttk.Button(window, text="Сохранить", command=save_fertilizer).pack(pady=10)
+
+    def diagnose_health(self, cactus_name):
+        """Show health diagnosis interface"""
+        window = tk.Toplevel(self.root)
+        window.title("Диагностика здоровья")
+        window.geometry("400x400")
+
+        ttk.Label(window, text="Выберите симптомы:").pack(pady=5)
+        symptoms = self.health_diagnosis.get_symptoms()
+        selected_symptoms = []
+
+        for symptom in symptoms:
+            var = tk.BooleanVar()
+            ttk.Checkbutton(window, text=symptom, variable=var).pack(anchor="w", padx=10)
+            selected_symptoms.append((symptom, var))
+
+        def diagnose():
+            chosen_symptoms = [symptom for symptom, var in selected_symptoms if var.get()]
+            if not chosen_symptoms:
+                messagebox.showwarning("Предупреждение", "Выберите хотя бы один симптом")
+                return
+            diagnosis = self.health_diagnosis.diagnose(chosen_symptoms)
+            result_window = tk.Toplevel(window)
+            result_window.title("Результат диагностики")
+            result_window.geometry("400x300")
+            result_text = tk.Text(result_window, wrap="word", height=15, width=50, font=("Arial", 12))
+            result_text.pack(fill="both", expand=True, padx=10, pady=10)
+            result_text.insert("1.0", diagnosis)
+            result_text.config(state="disabled")
+
+        ttk.Button(window, text="Диагностировать", command=diagnose).pack(pady=10)
+
     def save_frequency(self, cactus_name):
         """Save watering frequency"""
         try:
@@ -369,9 +464,10 @@ class UIManager:
     def update_reminder(self, cactus_name):
         """Update watering reminder"""
         cactus_data = self.data_manager.data["cactuses"][cactus_name]
+        seasonal_freq = self.data_manager.get_seasonal_watering_frequency(cactus_name, self.species_db)
         if cactus_data["watering"]:
             last_watering = datetime.strptime(cactus_data["watering"][-1]["date"], "%Y-%m-%d %H:%M")
-            next_watering = last_watering + timedelta(days=cactus_data["watering_frequency"])
+            next_watering = last_watering + timedelta(days=seasonal_freq)
             days_left = (next_watering - datetime.now()).days
             if days_left <= 0:
                 self.reminder_label.config(text="Пора полить кактус!", foreground="red")
@@ -411,6 +507,10 @@ class UIManager:
         self.history_text.insert(tk.END, "\nФото:\n")
         for p in cactus_data["photos"]:
             self.history_text.insert(tk.END, f"{p['date']} - {p['path']}\n")
+
+        self.history_text.insert(tk.END, "\nПодкормки:\n")
+        for f in cactus_data["fertilizers"]:
+            self.history_text.insert(tk.END, f"{f['date']} - {f['type']} ({f['dosage']}) - {f['comment']}\n")
 
     def plan_repotting(self, cactus_name):
         """Plan repotting"""
@@ -529,3 +629,61 @@ class UIManager:
         if self.data_manager.restore_data():
             self.update_cactus_dropdown()
             self.show_cactus_profile(None)
+
+    def bulk_processing(self):
+        """Interface for bulk watering or fertilizing"""
+        window = tk.Toplevel(self.root)
+        window.title("Массовая обработка")
+        window.geometry("400x400")
+
+        ttk.Label(window, text="Выберите кактусы:").pack(pady=5)
+        cactus_list = list(self.data_manager.data["cactuses"].keys())
+        selected_cactuses = []
+
+        for cactus in cactus_list:
+            var = tk.BooleanVar()
+            ttk.Checkbutton(window, text=cactus, variable=var).pack(anchor="w", padx=10)
+            selected_cactuses.append((cactus, var))
+
+        ttk.Label(window, text="Действие:").pack(pady=5)
+        action_var = tk.StringVar(value="Полив")
+        ttk.Radiobutton(window, text="Полив", variable=action_var, value="Полив").pack(anchor="w", padx=10)
+        ttk.Radiobutton(window, text="Подкормка", variable=action_var, value="Подкормка").pack(anchor="w", padx=10)
+
+        ttk.Label(window, text="Комментарий (для полива):").pack(pady=5)
+        comment_entry = ttk.Entry(window, width=30)
+        comment_entry.pack(pady=5)
+
+        ttk.Label(window, text="Тип удобрения (для подкормки):").pack(pady=5)
+        type_entry = ttk.Entry(window)
+        type_entry.pack(pady=5)
+
+        ttk.Label(window, text="Дозировка (для подкормки):").pack(pady=5)
+        dosage_entry = ttk.Entry(window)
+        dosage_entry.pack(pady=5)
+
+        def process():
+            chosen_cactuses = [cactus for cactus, var in selected_cactuses if var.get()]
+            if not chosen_cactuses:
+                messagebox.showwarning("Предупреждение", "Выберите хотя бы один кактус")
+                return
+            action = action_var.get()
+            comment = comment_entry.get()
+            fertilizer_type = type_entry.get().strip()
+            dosage = dosage_entry.get().strip()
+
+            if action == "Полив":
+                self.data_manager.bulk_add_watering(chosen_cactuses, comment)
+                messagebox.showinfo("Успех", f"Полив добавлен для {len(chosen_cactuses)} кактусов")
+            elif action == "Подкормка":
+                if not fertilizer_type or not dosage:
+                    messagebox.showerror("Ошибка", "Укажите тип удобрения и дозировку")
+                    return
+                self.data_manager.bulk_add_fertilizer(chosen_cactuses, fertilizer_type, dosage, comment)
+                messagebox.showinfo("Успех", f"Подкормка добавлена для {len(chosen_cactuses)} кактусов")
+
+            self.update_cactus_dropdown()
+            self.show_cactus_profile(None)
+            window.destroy()
+
+        ttk.Button(window, text="Выполнить", command=process).pack(pady=10)

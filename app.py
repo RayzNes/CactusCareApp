@@ -3,6 +3,7 @@ from tkinter import ttk
 from data_manager import DataManager
 from ui_components import UIManager
 from visualization import VisualizationManager
+from health_diagnosis import HealthDiagnosis
 
 class CactusCareApp:
     def __init__(self, root):
@@ -12,7 +13,7 @@ class CactusCareApp:
 
         # Initialize managers in correct order
         self.data_manager = DataManager("cactus_data.json")
-        self.visualization_manager = VisualizationManager(self)  # Moved before ui_manager
+        self.visualization_manager = VisualizationManager(self)
         self.ui_manager = UIManager(self)
 
         # Create main interface
